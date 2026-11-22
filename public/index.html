@@ -25,6 +25,10 @@
   .timer { text-align: center; font-size: 48px; margin: 8px 0; }
   .result { text-align: center; font-size: 26px; margin: 24px 0; }
   .error { color: #ff7b8a; text-align: center; min-height: 24px; }
+  .rules h2 { text-align: center; font-size: 28px; margin: 24px 0 16px; }
+  .rules .step { display: flex; gap: 12px; padding: 12px; margin: 8px 0; background: #232738; border-radius: 12px; line-height: 1.4; }
+  .rules .num { flex: 0 0 28px; height: 28px; border-radius: 50%; background: #5b6cff; text-align: center; line-height: 28px; font-weight: bold; }
+  .rules .tip { padding: 12px; margin: 12px 0; border-left: 4px solid #3ddc84; background: #1c2230; border-radius: 8px; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -36,7 +40,28 @@
   <button id="createBtn">Создать комнату</button>
   <input id="codeInput" placeholder="Код комнаты" inputmode="numeric" maxlength="4">
   <button id="joinBtn" class="secondary">Войти по коду</button>
+  <button class="secondary" onclick="openRules('home')">📖 Как играть</button>
   <div id="error" class="error"></div>
+</div>
+
+<div id="rules" class="screen rules">
+  <h2>Как играть в «Шпион»</h2>
+
+  <div class="step"><div class="num">1</div><div><b>Соберитесь в комнате.</b> Один игрок создаёт комнату и диктует остальным четырёхзначный код. Нужно минимум 3 человека, лучше 4–8. Все разговаривают голосом прямо в приложении.</div></div>
+
+  <div class="step"><div class="num">2</div><div><b>Получите карточки.</b> У всех игроков одно и то же секретное слово, например «телевизор». Только у шпиона вместо слова написано «ШПИОН». Нажми на карточку и держи, чтобы увидеть, и никому не показывай.</div></div>
+
+  <div class="step"><div class="num">3</div><div><b>Задавайте вопросы.</b> По очереди спрашивайте друг друга про слово: «Оно большое?», «Оно есть у тебя дома?». Отвечать нужно так, чтобы свои поняли, что ты знаешь слово, а шпион не догадался, что это за слово.</div></div>
+
+  <div class="step"><div class="num">4</div><div><b>Шпион притворяется.</b> Он не знает слово, поэтому слушает ответы и старается отвечать так, будто знает. Если он догадался, что за слово, он нажимает «Я знаю слово!» и называет его.</div></div>
+
+  <div class="step"><div class="num">5</div><div><b>Голосование.</b> Когда время вышло, все голосуют, кто шпион: нажми на имя подозреваемого.</div></div>
+
+  <div class="tip"><b>Кто побеждает</b><br>Игроки выигрывают, если большинство указало на шпиона, или если шпион назвал слово неверно.<br>Шпион выигрывает, если угадал слово или если игроки проголосовали не за него.</div>
+
+  <div class="tip"><b>Советы</b><br>• Не называйте слово прямо, иначе шпион его узнает.<br>• Не отвечайте слишком расплывчато, иначе вас самих заподозрят.<br>• Шпиону проще, если он слушает внимательно.</div>
+
+  <button onclick="closeRules()">Понятно</button>
 </div>
 
 <div id="lobby" class="screen">
@@ -56,6 +81,7 @@
     <button id="startBtn">Начать игру (нужно от 3 игроков)</button>
   </div>
   <button id="muteBtn" class="secondary">🎤 Микрофон включён</button>
+  <button class="secondary" onclick="openRules('lobby')">📖 Как играть</button>
 </div>
 
 <div id="play" class="screen">
@@ -78,6 +104,20 @@
 
 <div id="audioBox"></div>
 
+<script>
+  // Экран правил: запоминаем, откуда пришли, и возвращаемся туда же
+  var rulesBackTo = 'home';
+  function openRules(from) {
+    rulesBackTo = from;
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
+    document.getElementById('rules').classList.add('active');
+    window.scrollTo(0, 0);
+  }
+  function closeRules() {
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
+    document.getElementById(rulesBackTo).classList.add('active');
+  }
+</script>
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 </body>
