@@ -7,10 +7,12 @@ let timerInterval = null;
 let localStream = null;
 let micOn = true;
 const peers = {};
+const pending = {};
 
 const ICE = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
     // Для надёжной связи добавьте свой TURN-сервер:
     // { urls: 'turn:ВАШ_СЕРВЕР:3478', username: 'user', credential: 'pass' }
   ]
@@ -23,17 +25,23 @@ function show(id) {
 
 // ---------- Голосовой чат (WebRTC) ----------
 async function startMic() {
-  if (localStream) return;
+  if (localStream) return true;
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+    return true;
   } catch (e) {
-    $('error').textContent = 'Нет доступа к микрофону';
+    $('error').textContent = 'Нет доступа к микрофону. Разреши его в настройках браузера.';
+    return false;
   }
 }
 
 function createPeer(id) {
+  if (peers[id]) return peers[id];
   const pc = new RTCPeerConnection(ICE);
   peers[id] = pc;
+  pending[id] = [];
   if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   pc.onicecandidate = (e) => {
     if (e.candidate) socket.emit('signal', { to: id, data: { candidate: e.candidate } });
@@ -44,36 +52,53 @@ function createPeer(id) {
       audio = document.createElement('audio');
       audio.id = 'audio-' + id;
       audio.autoplay = true;
+      audio.playsInline = true;
       $('audioBox').appendChild(audio);
     }
     audio.srcObject = e.streams[0];
+    audio.play().catch(() => {});
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed') {
+      delete peers[id];
+      pc.close();
+    }
   };
   return pc;
 }
 
 async function callPeer(id) {
-  const pc = peers[id] || createPeer(id);
+  const pc = createPeer(id);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   socket.emit('signal', { to: id, data: { sdp: pc.localDescription } });
 }
 
 socket.on('signal', async ({ from, data }) => {
-  const pc = peers[from] || createPeer(from);
+  const pc = createPeer(from);
   if (data.sdp) {
     await pc.setRemoteDescription(data.sdp);
+    while (pending[from] && pending[from].length) {
+      try { await pc.addIceCandidate(pending[from].shift()); } catch (e) {}
+    }
     if (data.sdp.type === 'offer') {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit('signal', { to: from, data: { sdp: pc.localDescription } });
     }
   } else if (data.candidate) {
-    try { await pc.addIceCandidate(data.candidate); } catch (e) {}
+    if (pc.remoteDescription) {
+      try { await pc.addIceCandidate(data.candidate); } catch (e) {}
+    } else {
+      pending[from].push(data.candidate);
+    }
   }
 });
 
 socket.on('peer-left', (id) => {
   if (peers[id]) { peers[id].close(); delete peers[id]; }
+  delete pending[id];
+  knownPlayers.delete(id);
   const a = document.getElementById('audio-' + id);
   if (a) a.remove();
 });
@@ -86,17 +111,27 @@ function toggleMic() {
   $('muteBtn2').textContent = label;
 }
 
-// Новый игрок звонит всем, кто уже в комнате
-let knownPlayers = new Set();
+// Новый игрок звонит всем, кто уже был в комнате до него
+const knownPlayers = new Set();
+let joinedAt = null;
+
 function connectNewPeers() {
-  if (!state) return;
-  state.players.forEach(p => {
-    if (p.id !== socket.id && !knownPlayers.has(p.id)) {
-      knownPlayers.add(p.id);
-      // Звонит тот, чей id по алфавиту меньше, чтобы не было двойных звонков
-      if (socket.id < p.id) callPeer(p.id);
-    }
+  if (!state || !localStream) return;
+  const ids = state.players.map(p => p.id);
+  const myIndex = ids.indexOf(socket.id);
+  state.players.forEach((p, index) => {
+    if (p.id === socket.id || knownPlayers.has(p.id)) return;
+    knownPlayers.add(p.id);
+    // Звонит тот, кто вошёл позже: у него в списке больший номер
+    if (myIndex > index) callPeer(p.id);
   });
+}
+
+// Браузеры телефонов не включают звук, пока пользователь не коснётся экрана
+document.addEventListener('touchstart', unlockAudio, { once: false });
+document.addEventListener('click', unlockAudio, { once: false });
+function unlockAudio() {
+  document.querySelectorAll('#audioBox audio').forEach(a => a.play().catch(() => {}));
 }
 
 // ---------- Экраны ----------
@@ -174,7 +209,8 @@ $('card').addEventListener('mouseleave', hide);
 $('createBtn').onclick = async () => {
   const name = $('nameInput').value.trim();
   if (!name) return ($('error').textContent = 'Введи имя');
-  await startMic();
+  const ok = await startMic();
+  if (!ok) return;
   socket.emit('create', { name });
 };
 
@@ -182,7 +218,8 @@ $('joinBtn').onclick = async () => {
   const name = $('nameInput').value.trim();
   const code = $('codeInput').value.trim();
   if (!name || !code) return ($('error').textContent = 'Введи имя и код');
-  await startMic();
+  const ok = await startMic();
+  if (!ok) return;
   socket.emit('join', { code, name });
 };
 
