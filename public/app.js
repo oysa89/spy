@@ -1,4 +1,4 @@
-const socket = io();
+const socket = io({ reconnection: true, reconnectionDelay: 500, reconnectionDelayMax: 3000 });
 const $ = (id) => document.getElementById(id);
 
 let state = null;
@@ -7,6 +7,9 @@ let timerInterval = null;
 let localStream = null;
 let micOn = true;
 let inRoom = false;
+let myName = '';
+let myRoomCode = '';
+let myOldId = '';
 const peers = {};
 const pending = {};
 const knownPlayers = new Set();
@@ -25,6 +28,59 @@ function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   $(id).classList.add('active');
 }
+
+// ---------- Запоминаем комнату, чтобы вернуться после сворачивания ----------
+function saveSession() {
+  try {
+    sessionStorage.setItem('spy-session', JSON.stringify({
+      name: myName, code: myRoomCode, id: socket.id
+    }));
+  } catch (e) {}
+}
+function clearSession() {
+  try { sessionStorage.removeItem('spy-session'); } catch (e) {}
+}
+function loadSession() {
+  try { return JSON.parse(sessionStorage.getItem('spy-session') || 'null'); } catch (e) { return null; }
+}
+
+function tryRejoin() {
+  const s = loadSession();
+  if (!s || !s.code || !s.name || !s.id) return;
+  myName = s.name;
+  myRoomCode = s.code;
+  myOldId = s.id;
+  socket.emit('rejoin', { code: s.code, name: s.name, oldId: s.id });
+}
+
+// Каждый раз, когда связь с сервером восстановилась, пробуем вернуться в комнату
+socket.on('connect', () => {
+  if (inRoom || loadSession()) {
+    if (inRoom && myOldId === socket.id) return;
+    tryRejoin();
+  }
+});
+
+socket.on('rejoined', async () => {
+  inRoom = true;
+  myOldId = socket.id;
+  saveSession();
+  // Старые голосовые соединения устарели, строим заново
+  Object.keys(peers).forEach(dropPeer);
+  knownPlayers.clear();
+  await startMic();
+  if (state) connectNewPeers();
+});
+
+socket.on('rejoin-failed', () => {
+  clearSession();
+  inRoom = false;
+  state = null;
+  Object.keys(peers).forEach(dropPeer);
+  knownPlayers.clear();
+  show('home');
+  $('error').textContent = 'Комната уже закрыта или тебя из неё убрали. Войди заново.';
+});
 
 // ---------- Микрофон ----------
 async function startMic() {
@@ -129,7 +185,6 @@ async function callPeer(id) {
 }
 
 socket.on('signal', async ({ from, data }) => {
-  // Если соединение с этим игроком уже было и сломалось, начинаем заново
   if (data.sdp && data.sdp.type === 'offer' && peers[from] &&
       peers[from].signalingState !== 'stable') {
     dropPeer(from);
@@ -167,7 +222,7 @@ function toggleMic() {
   $('muteBtn2').textContent = label;
 }
 
-// Новый игрок звонит всем, кто уже был в комнате до него
+// Звонит тот, кто стоит в списке позже
 function connectNewPeers() {
   if (!state || !localStream) return;
   const ids = state.players.map(p => p.id);
@@ -180,7 +235,6 @@ function connectNewPeers() {
 }
 
 // ---------- Звук на iPhone ----------
-// Safari не включает чужой звук, пока человек не коснулся экрана
 function unlockAudio() {
   try { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {}
   document.querySelectorAll('#audioBox audio').forEach(a => {
@@ -211,7 +265,6 @@ async function recoverVoice() {
   if (!inRoom || !state) return;
   await startMic();
   unlockAudio();
-  // Пересоздаём соединения со всеми, чей звук перестал идти
   state.players.forEach((p, index) => {
     if (p.id === socket.id) return;
     const pc = peers[p.id];
@@ -222,7 +275,6 @@ async function recoverVoice() {
     const myIndex = state.players.findIndex(x => x.id === socket.id);
     if (myIndex > index) callPeer(p.id);
   });
-  // Подставляем свежий микрофон в уже работающие соединения
   if (localStream) {
     const track = localStream.getAudioTracks()[0];
     Object.values(peers).forEach(pc => {
@@ -234,9 +286,16 @@ async function recoverVoice() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') setTimeout(recoverVoice, 300);
+  if (document.visibilityState === 'visible') {
+    // Если связь с сервером оборвалась, подключаемся заново
+    if (!socket.connected) socket.connect();
+    setTimeout(recoverVoice, 500);
+  }
 });
-window.addEventListener('pageshow', () => setTimeout(recoverVoice, 300));
+window.addEventListener('pageshow', () => {
+  if (!socket.connected) socket.connect();
+  setTimeout(recoverVoice, 500);
+});
 
 // ---------- Экраны ----------
 function renderPlayers(boxId, onClick) {
@@ -264,6 +323,9 @@ function tick() {
 socket.on('state', (s) => {
   state = s;
   inRoom = true;
+  myRoomCode = s.code;
+  myOldId = socket.id;
+  saveSession();
   connectNewPeers();
   if (s.phase === 'lobby') {
     show('lobby');
@@ -316,6 +378,7 @@ $('card').addEventListener('mouseleave', hide);
 $('createBtn').onclick = async () => {
   const name = $('nameInput').value.trim();
   if (!name) return ($('error').textContent = 'Введи имя');
+  myName = name;
   unlockAudio();
   const ok = await startMic();
   if (!ok) return;
@@ -326,6 +389,7 @@ $('joinBtn').onclick = async () => {
   const name = $('nameInput').value.trim();
   const code = $('codeInput').value.trim();
   if (!name || !code) return ($('error').textContent = 'Введи имя и код');
+  myName = name;
   unlockAudio();
   const ok = await startMic();
   if (!ok) return;
@@ -344,3 +408,8 @@ $('guessBtn').onclick = () => {
 $('newGameBtn').onclick = () => socket.emit('new-game');
 $('muteBtn').onclick = toggleMic;
 $('muteBtn2').onclick = toggleMic;
+
+// Если страницу полностью перезагрузили, пробуем вернуться в комнату
+if (loadSession()) {
+  socket.on('connect', () => {});
+}
