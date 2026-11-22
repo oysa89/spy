@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Шпион</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #14161f; color: #f2f2f5; min-height: 100vh; }
+  .screen { display: none; padding: 24px; max-width: 480px; margin: 0 auto; }
+  .screen.active { display: block; }
+  h1 { text-align: center; font-size: 40px; margin: 40px 0 8px; }
+  .sub { text-align: center; opacity: .6; margin-bottom: 32px; }
+  input, select { width: 100%; padding: 14px; margin: 8px 0; font-size: 18px; border-radius: 12px; border: 0; background: #232738; color: #fff; }
+  button { width: 100%; padding: 16px; margin: 8px 0; font-size: 18px; border: 0; border-radius: 12px; background: #5b6cff; color: #fff; }
+  button.secondary { background: #2d3248; }
+  button.danger { background: #d9475b; }
+  button:disabled { opacity: .4; }
+  .code { font-size: 56px; text-align: center; letter-spacing: 10px; margin: 16px 0; }
+  .player { display: flex; align-items: center; padding: 12px; margin: 6px 0; background: #232738; border-radius: 12px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: #444; margin-right: 12px; }
+  .dot.talking { background: #3ddc84; box-shadow: 0 0 8px #3ddc84; }
+  .card { height: 220px; display: flex; align-items: center; justify-content: center; font-size: 38px; font-weight: bold; border-radius: 20px; background: linear-gradient(135deg, #3b3f66, #232738); margin: 16px 0; user-select: none; text-align: center; padding: 12px; }
+  .card.hidden { font-size: 20px; opacity: .7; font-weight: normal; }
+  .timer { text-align: center; font-size: 48px; margin: 8px 0; }
+  .result { text-align: center; font-size: 26px; margin: 24px 0; }
+  .error { color: #ff7b8a; text-align: center; min-height: 24px; }
+</style>
+</head>
+<body>
+
+<div id="home" class="screen active">
+  <h1>🕵️ Шпион</h1>
+  <div class="sub">Найди шпиона среди друзей</div>
+  <input id="nameInput" placeholder="Твоё имя" maxlength="16">
+  <button id="createBtn">Создать комнату</button>
+  <input id="codeInput" placeholder="Код комнаты" inputmode="numeric" maxlength="4">
+  <button id="joinBtn" class="secondary">Войти по коду</button>
+  <div id="error" class="error"></div>
+</div>
+
+<div id="lobby" class="screen">
+  <div class="sub">Код комнаты</div>
+  <div id="lobbyCode" class="code"></div>
+  <div id="lobbyPlayers"></div>
+  <div id="hostControls">
+    <select id="topicSelect">
+      <option>Дом</option><option>Еда</option><option>Места</option>
+      <option>Профессии</option><option>Животные</option>
+    </select>
+    <select id="minutesSelect">
+      <option value="5">5 минут</option>
+      <option value="8" selected>8 минут</option>
+      <option value="12">12 минут</option>
+    </select>
+    <button id="startBtn">Начать игру (нужно от 3 игроков)</button>
+  </div>
+  <button id="muteBtn" class="secondary">🎤 Микрофон включён</button>
+</div>
+
+<div id="play" class="screen">
+  <div id="timer" class="timer">8:00</div>
+  <div id="card" class="card hidden">Нажми и держи, чтобы увидеть</div>
+  <div id="playPlayers"></div>
+  <button id="guessBtn" class="danger" style="display:none">Я знаю слово!</button>
+  <button id="muteBtn2" class="secondary">🎤 Микрофон включён</button>
+</div>
+
+<div id="vote" class="screen">
+  <h1 style="font-size:28px">Кто шпион?</h1>
+  <div id="votePlayers"></div>
+</div>
+
+<div id="result" class="screen">
+  <div id="resultText" class="result"></div>
+  <button id="newGameBtn">Новая игра</button>
+</div>
+
+<div id="audioBox"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
